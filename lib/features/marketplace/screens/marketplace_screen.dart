@@ -1,0 +1,734 @@
+// 🛍️ Marketplace Screen (মূল মার্কেটপ্লেস স্ক্রিন)
+// 📌 কাজ: সব বিক্রয়যোগ্য পণ্যের গ্রিড প্রদর্শন, লাইভ সার্চবার, ক্যাটাগরি ফিল্টার চিপস এবং সর্টিং ড্রপডাউন।
+// 🔗 স্টেট: marketplaceProvider, selectedCategoryProvider, searchQueryProvider, selectedSortProvider
+// 🔗 নেভিগেশন: প্রোডাক্ট ক্লিক করলে ProductDetailsScreen-এ নিয়ে যায়।
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../core/providers/marketplace_provider.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../models/product.dart';
+
+class MarketplaceScreen extends ConsumerWidget {
+  const MarketplaceScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final products = ref.watch(marketplaceProvider);
+    final isLoading = ref.watch(marketplaceLoadingProvider);
+    final selectedCategory = ref.watch(selectedCategoryProvider);
+    final searchQuery = ref.watch(searchQueryProvider);
+    final selectedSort = ref.watch(selectedSortProvider);
+    final theme = Theme.of(context);
+
+    final categories = ['All Categories', 'Books', 'Electronics', 'Stationery', 'Notes', 'Digital Services'];
+
+    final cleanSearch = searchQuery.trim().toLowerCase();
+
+    List<Product> filteredProducts = products.where((p) {
+      final pCat = p.category.toLowerCase().trim();
+      final selCat = selectedCategory.toLowerCase().trim();
+
+      bool matchesCat = false;
+      if (selectedCategory == 'All Categories' || selectedCategory == 'All') {
+        matchesCat = true;
+      } else if (selCat == 'books') {
+        matchesCat = pCat == 'books' ||
+            pCat.contains('book') ||
+            p.title.toLowerCase().contains('book') ||
+            p.description.toLowerCase().contains('textbook') ||
+            p.description.toLowerCase().contains('hardcover') ||
+            p.description.toLowerCase().contains('edition');
+      } else if (selCat == 'electronics') {
+        matchesCat = pCat == 'electronics' ||
+            pCat.contains('electr') ||
+            p.title.toLowerCase().contains('calculator') ||
+            p.title.toLowerCase().contains('keyboard') ||
+            p.title.toLowerCase().contains('laptop') ||
+            p.title.toLowerCase().contains('phone') ||
+            p.title.toLowerCase().contains('mouse') ||
+            p.title.toLowerCase().contains('monitor') ||
+            p.title.toLowerCase().contains('gadget') ||
+            p.description.toLowerCase().contains('battery') ||
+            p.description.toLowerCase().contains('screen');
+      } else if (selCat == 'stationery') {
+        matchesCat = pCat == 'stationery' ||
+            pCat.contains('station') ||
+            p.title.toLowerCase().contains('pen') ||
+            p.title.toLowerCase().contains('notebook') ||
+            p.title.toLowerCase().contains('binder') ||
+            p.title.toLowerCase().contains('marker') ||
+            p.title.toLowerCase().contains('pencil') ||
+            p.title.toLowerCase().contains('highlighter') ||
+            p.title.toLowerCase().contains('desk lamp') ||
+            p.title.toLowerCase().contains('lamp');
+      } else if (selCat == 'notes') {
+        matchesCat = pCat == 'notes' ||
+            pCat.contains('note') ||
+            p.title.toLowerCase().contains('note') ||
+            p.title.toLowerCase().contains('sheet') ||
+            p.title.toLowerCase().contains('lecture') ||
+            p.title.toLowerCase().contains('midterm') ||
+            p.title.toLowerCase().contains('final') ||
+            p.title.toLowerCase().contains('pdf');
+      } else if (selCat == 'digital services') {
+        matchesCat = pCat == 'digital services' ||
+            pCat.contains('digital') ||
+            pCat.contains('service') ||
+            p.title.toLowerCase().contains('service') ||
+            p.title.toLowerCase().contains('design') ||
+            p.title.toLowerCase().contains('review') ||
+            p.title.toLowerCase().contains('resume') ||
+            p.title.toLowerCase().contains('portfolio') ||
+            p.title.toLowerCase().contains('tutor');
+      } else {
+        matchesCat = pCat == selCat || pCat.contains(selCat);
+      }
+
+      bool matchesSearch = true;
+      if (cleanSearch.isNotEmpty) {
+        final queryTerms = cleanSearch.split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
+        matchesSearch = queryTerms.every((term) =>
+            p.title.toLowerCase().contains(term) ||
+            p.description.toLowerCase().contains(term) ||
+            p.category.toLowerCase().contains(term) ||
+            p.sellerName.toLowerCase().contains(term) ||
+            p.sellerCampus.toLowerCase().contains(term) ||
+            p.condition.toLowerCase().contains(term) ||
+            p.price.toStringAsFixed(0).contains(term));
+      }
+
+      return matchesCat && matchesSearch;
+    }).toList();
+
+    // Apply Sorting
+    if (selectedSort == 'Price: Low to High') {
+      filteredProducts.sort((a, b) => a.price.compareTo(b.price));
+    } else if (selectedSort == 'Price: High to Low') {
+      filteredProducts.sort((a, b) => b.price.compareTo(a.price));
+    } else if (selectedSort == 'Newest') {
+      filteredProducts = filteredProducts.reversed.toList();
+    }
+
+    int getCategoryCount(String cat) {
+      if (cat == 'All Categories' || cat == 'All') return products.length;
+      final sel = cat.toLowerCase();
+      return products.where((p) {
+        final pCat = p.category.toLowerCase();
+        if (sel == 'books') {
+          return pCat == 'books' || pCat.contains('book') || p.title.toLowerCase().contains('book') || p.description.toLowerCase().contains('textbook');
+        } else if (sel == 'electronics') {
+          return pCat == 'electronics' || pCat.contains('electr') || p.title.toLowerCase().contains('calculator') || p.title.toLowerCase().contains('keyboard') || p.title.toLowerCase().contains('phone');
+        } else if (sel == 'stationery') {
+          return pCat == 'stationery' || pCat.contains('station') || p.title.toLowerCase().contains('pen') || p.title.toLowerCase().contains('notebook');
+        } else if (sel == 'notes') {
+          return pCat == 'notes' || pCat.contains('note') || p.title.toLowerCase().contains('note') || p.title.toLowerCase().contains('sheet') || p.title.toLowerCase().contains('pdf');
+        } else if (sel == 'digital services') {
+          return pCat == 'digital services' || pCat.contains('digital') || pCat.contains('service') || p.title.toLowerCase().contains('service') || p.title.toLowerCase().contains('design') || p.title.toLowerCase().contains('resume');
+        }
+        return pCat == sel;
+      }).length;
+    }
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1440),
+          child: CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(32, 28, 32, 20),
+                sliver: SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                // Title Header & Post Listing Button
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Marketplace',
+                          style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: context.textPrimary, letterSpacing: -0.8),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Find textbooks, notes, and services from students on campus.',
+                          style: TextStyle(fontSize: 14, color: context.textSecondary),
+                        ),
+                      ],
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () => context.go('/sell'),
+                      icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
+                      label: const Text('Sell an Item', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2563EB),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                // Category Filter Bar & Sort Controls
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Scrollable Category Pills
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            ...categories.map((cat) {
+                              final isSel = (selectedCategory == cat) || (selectedCategory == 'All' && cat == 'All Categories');
+                              final count = getCategoryCount(cat);
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 8.0),
+                                child: ChoiceChip(
+                                  label: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(cat),
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: isSel ? Colors.white.withValues(alpha: 0.25) : context.borderColor,
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Text(
+                                          '$count',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: isSel ? Colors.white : context.textSecondary,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  selected: isSel,
+                                  onSelected: (s) {
+                                    if (s) {
+                                      ref.read(selectedCategoryProvider.notifier).setCategory(cat);
+                                    }
+                                  },
+                                  selectedColor: const Color(0xFF2563EB),
+                                  backgroundColor: context.surfaceColor,
+                                  labelStyle: TextStyle(
+                                    color: isSel ? Colors.white : context.textSecondary,
+                                    fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
+                                    fontSize: 13,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20),
+                                    side: BorderSide(color: isSel ? const Color(0xFF2563EB) : context.borderColor),
+                                  ),
+                                ),
+                              );
+                            }),
+                            if (searchQuery.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              ActionChip(
+                                avatar: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF2563EB)),
+                                label: Text('Search: "$searchQuery"'),
+                                backgroundColor: context.primaryContainerBg,
+                                labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)),
+                                onPressed: () {
+                                  ref.read(searchQueryProvider.notifier).setQuery('');
+                                },
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide(color: context.borderColor)),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 16),
+
+                    // Sort By Dropdown
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: context.surfaceColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: context.borderColor),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.sort_rounded, size: 16, color: context.textSecondary),
+                          const SizedBox(width: 6),
+                          DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              dropdownColor: context.surfaceColor,
+                              value: selectedSort,
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textPrimary),
+                              icon: Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: context.textSecondary),
+                              items: const [
+                                DropdownMenuItem(value: 'Default', child: Text('Featured')),
+                                DropdownMenuItem(value: 'Price: Low to High', child: Text('Price: Low to High')),
+                                DropdownMenuItem(value: 'Price: High to Low', child: Text('Price: High to Low')),
+                                DropdownMenuItem(value: 'Newest', child: Text('Newest First')),
+                              ],
+                              onChanged: (val) {
+                                if (val != null) {
+                                  ref.read(selectedSortProvider.notifier).setSort(val);
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Active Filter Status Info
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Showing ${filteredProducts.length} ${filteredProducts.length == 1 ? 'item' : 'items'} in $selectedCategory',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: context.textSecondary),
+                    ),
+                    if (selectedCategory != 'All Categories' || searchQuery.isNotEmpty || selectedSort != 'Default')
+                      GestureDetector(
+                        onTap: () {
+                          ref.read(selectedCategoryProvider.notifier).setCategory('All Categories');
+                          ref.read(searchQueryProvider.notifier).setQuery('');
+                          ref.read(selectedSortProvider.notifier).setSort('Default');
+                        },
+                        child: const Row(
+                          children: [
+                            Icon(Icons.refresh_rounded, size: 14, color: Color(0xFF2563EB)),
+                            SizedBox(width: 4),
+                            Text('Reset All Filters', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // Loading or Empty State
+                if (isLoading)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 80),
+                    child: const Center(
+                      child: CircularProgressIndicator(color: Color(0xFF2563EB)),
+                    ),
+                  )
+                else if (filteredProducts.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 60),
+                    decoration: BoxDecoration(
+                      color: context.cardBg,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: context.borderColor),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(Icons.search_off_rounded, size: 48, color: context.textMuted),
+                        const SizedBox(height: 12),
+                        Text(
+                          searchQuery.isNotEmpty
+                              ? 'No items found matching "$searchQuery"'
+                              : 'No items found in "$selectedCategory"',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          searchQuery.isNotEmpty
+                              ? 'Try searching with different keywords or check spelling.'
+                              : 'Be the first to list an item in this category!',
+                          style: TextStyle(fontSize: 13, color: context.textSecondary),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            OutlinedButton(
+                              onPressed: () {
+                                ref.read(selectedCategoryProvider.notifier).setCategory('All Categories');
+                                ref.read(searchQueryProvider.notifier).setQuery('');
+                              },
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Color(0xFF2563EB)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              child: const Text('View All Categories', style: TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(width: 12),
+                            ElevatedButton(
+                              onPressed: () => context.go('/sell'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF2563EB),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              child: const Text('Post a Listing'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  )
+                    ],
+                  ),
+                ),
+              ),
+              if (filteredProducts.isNotEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(32, 0, 32, 28),
+                  sliver: SliverLayoutBuilder(
+                    builder: (context, constraints) {
+                      int crossAxisCount = 4;
+                      double childAspectRatio = 0.68;
+                      if (constraints.crossAxisExtent < 600) {
+                        crossAxisCount = 1;
+                        childAspectRatio = 1.15;
+                      } else if (constraints.crossAxisExtent < 900) {
+                        crossAxisCount = 2;
+                        childAspectRatio = 0.72;
+                      } else if (constraints.crossAxisExtent < 1250) {
+                        crossAxisCount = 3;
+                        childAspectRatio = 0.70;
+                      } else if (constraints.crossAxisExtent < 1550) {
+                        crossAxisCount = 4;
+                        childAspectRatio = 0.68;
+                      } else {
+                        crossAxisCount = 5;
+                        childAspectRatio = 0.68;
+                      }
+
+                      return SliverGrid(
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          childAspectRatio: childAspectRatio,
+                          crossAxisSpacing: 20,
+                          mainAxisSpacing: 20,
+                        ),
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                            final item = filteredProducts[index];
+                            return _ProductCard(item: item, theme: theme);
+                          },
+                          childCount: filteredProducts.length,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductCard extends StatefulWidget {
+  final dynamic item;
+  final ThemeData theme;
+
+  const _ProductCard({required this.item, required this.theme});
+
+  @override
+  State<_ProductCard> createState() => _ProductCardState();
+}
+
+class _ProductCardState extends State<_ProductCard> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        transform: Matrix4.translationValues(0, _isHovered ? -4 : 0, 0),
+        decoration: BoxDecoration(
+          color: context.cardBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _isHovered ? context.primaryAccent : context.borderColor,
+            width: _isHovered ? 1.5 : 1.0,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: _isHovered ? Colors.black.withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.04),
+              blurRadius: _isHovered ? 16 : 4,
+              offset: Offset(0, _isHovered ? 8 : 2),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => context.go('/product-details/${item.id}', extra: item),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Product Image Banner with Hero
+              Stack(
+                children: [
+                  SizedBox(
+                    height: 180,
+                    width: double.infinity,
+                    child: Hero(
+                      tag: 'product-img-${item.id}',
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+                        child: Image.network(
+                          item.imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  const Color(0xFF2563EB).withValues(alpha: 0.1),
+                                  const Color(0xFF3B82F6).withValues(alpha: 0.25),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
+                            child: Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    item.category == 'Books'
+                                        ? Icons.menu_book_rounded
+                                        : (item.category == 'Stationery'
+                                            ? Icons.draw_rounded
+                                            : (item.category == 'Notes' ? Icons.description_rounded : Icons.laptop_chromebook_rounded)),
+                                    size: 42,
+                                    color: const Color(0xFF2563EB),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    item.category,
+                                    style: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 11),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: context.surfaceColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: context.borderColor),
+                        boxShadow: [
+                          BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 4),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.star_rounded, size: 12, color: Colors.amber),
+                          const SizedBox(width: 2),
+                          Text(
+                            '4.9',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: context.textPrimary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2563EB),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        item.category,
+                        style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                  if (item.isSold)
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.6),
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+                        ),
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.black,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Text(
+                              'SOLD OUT',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+
+              // Details
+              Padding(
+                padding: const EdgeInsets.all(14.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, height: 1.2, color: context.textPrimary),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '৳${item.price.toStringAsFixed(0)}',
+                          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: context.primaryAccent),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    StreamBuilder<DocumentSnapshot>(
+                      stream: () {
+                        if (Firebase.apps.isEmpty) return const Stream<DocumentSnapshot>.empty();
+                        
+                        String targetUid = item.sellerId ?? '';
+                        
+                        if (targetUid.trim().isEmpty) {
+                          final currUser = FirebaseAuth.instance.currentUser;
+                          if (currUser != null) {
+                            final prefix = (currUser.email?.split('@')[0] ?? '').trim();
+                            final isOwner = item.sellerName.trim() == (currUser.displayName ?? '').trim() ||
+                                (prefix.isNotEmpty && item.sellerName.trim() == prefix);
+                            if (isOwner && currUser.uid.trim().isNotEmpty) {
+                              targetUid = currUser.uid.trim();
+                            }
+                          }
+                        }
+
+                        final uid = targetUid.trim();
+                        if (uid.isNotEmpty && !uid.contains('/')) {
+                          try {
+                            return FirebaseFirestore.instance.collection('users').doc(uid).snapshots();
+                          } catch (_) {
+                            return const Stream<DocumentSnapshot>.empty();
+                          }
+                        }
+                        return const Stream<DocumentSnapshot>.empty();
+                      }(),
+                      builder: (context, snapshot) {
+                        String displaySellerName = item.sellerName;
+                        String? sellerPhotoUrl;
+
+                        if (snapshot.hasData && snapshot.data != null && snapshot.data!.exists) {
+                          final userData = snapshot.data!.data() as Map<String, dynamic>?;
+                          if (userData != null) {
+                            displaySellerName = userData['name'] ?? displaySellerName;
+                            sellerPhotoUrl = userData['photoUrl'] ?? userData['profileImageUrl'];
+                          }
+                        }
+
+                        return Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 10,
+                              backgroundColor: widget.theme.colorScheme.primaryContainer,
+                              backgroundImage: sellerPhotoUrl != null ? NetworkImage(sellerPhotoUrl) : null,
+                              child: sellerPhotoUrl == null
+                                  ? Text(displaySellerName.isNotEmpty ? displaySellerName[0].toUpperCase() : '?', 
+                                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold))
+                                  : null,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                displaySellerName, 
+                                style: TextStyle(fontSize: 11, color: context.textSecondary),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 32,
+                      child: OutlinedButton(
+                        onPressed: () => context.go('/product-details/${item.id}', extra: item),
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: _isHovered ? const Color(0xFF2563EB) : context.primaryContainerBg,
+                          foregroundColor: _isHovered ? Colors.white : context.primaryAccent,
+                          side: BorderSide.none,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: Text(
+                          'View Details',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: _isHovered ? Colors.white : context.primaryAccent,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
